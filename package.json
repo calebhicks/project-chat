@@ -28,7 +28,13 @@
       "import": "./dist/client/embed.js"
     }
   },
+  "files": [
+    "dist",
+    "README.md",
+    ".claude"
+  ],
   "scripts": {
+    "prepublishOnly": "npm run build",
     "build": "tsup",
     "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",

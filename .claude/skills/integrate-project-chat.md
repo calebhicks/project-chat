@@ -136,14 +136,53 @@ mcpServers: {
 
 ### 4.1 Add the widget
 
-**React projects (Next.js, Vite, Remix, etc.):**
+**Next.js App Router** (requires dynamic import to avoid SSR issues):
 
-In the root layout (the component that wraps all pages):
+Create a client component wrapper:
+
+```tsx
+// src/app/chat-widget.tsx
+"use client"
+
+import dynamic from 'next/dynamic'
+
+const ChatWidgetInner = dynamic(() => import('./chat-widget-inner').then(m => ({ default: m.ChatWidgetInner })), {
+  ssr: false,
+})
+
+export function ChatWidget() {
+  return <ChatWidgetInner />
+}
+```
+
+```tsx
+// src/app/chat-widget-inner.tsx
+"use client"
+
+import { AgentChatProvider, AgentChat } from 'project-chat'
+
+export function ChatWidgetInner() {
+  return (
+    <AgentChatProvider config={{
+      endpoint: '/api/chat',
+      title: '[Project Name]',
+      greeting: 'Hi! Ask me anything about [Project Name].',
+      placeholder: 'Ask a question...',
+    }}>
+      <AgentChat />
+    </AgentChatProvider>
+  )
+}
+```
+
+Then add `<ChatWidget />` to the root layout. The `ssr: false` ensures the widget only renders on the client (it uses `window`, `localStorage`, and other browser APIs).
+
+**Vite + React, Remix, other React projects:**
 
 ```tsx
 import { AgentChatProvider, AgentChat } from 'project-chat'
 
-// Inside the layout component, at the end of <body> or the root wrapper:
+// Inside the root component:
 <AgentChatProvider config={{
   endpoint: '/api/chat',
   title: '[Project Name]',
