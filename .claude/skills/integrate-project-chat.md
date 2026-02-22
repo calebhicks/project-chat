@@ -1,43 +1,107 @@
 # Integrate project-chat
 
-Autonomous integration of the project-chat widget into any web project. Analyzes the host, sets up the backend handler, configures MCP context, drops in the React widget, and verifies it end-to-end.
+Autonomous integration of the project-chat widget into any web project. Analyzes the host, configures MCP context, creates the backend handler, mounts the widget, and verifies end-to-end.
 
 ## When to use
 
-Use this skill when:
-- Asked to "add a chat widget" or "integrate project-chat"
-- Asked to "add AI chat" or "chat with this project"
+- Asked to "add a chat widget" or "add AI chat" to a project
+- Asked to "integrate project-chat" or "let users chat with this project"
 - Starting a new project-chat integration from scratch
 
 ## Overview
 
-Five phases, each producing artifacts that feed the next:
+Five phases, each producing concrete artifacts:
 
 ```
-Phase 1: Analyze    → Understand host framework, docs, code, design system
+Phase 1: Analyze    → Understanding of host framework, docs, code, design system
 Phase 2: Install    → Package installed, env vars configured
-Phase 3: Backend    → API route created with handler + MCP context
+Phase 3: Backend    → API route with handler + MCP context servers
 Phase 4: Frontend   → Widget mounted in app layout with matched theme
-Phase 5: Verify     → Test message confirms agent can search project context
+Phase 5: Verify     → Test message confirms contextual responses
 ```
+
+**Principle: the value is in the MCP context layer.** Any chat widget can call an LLM. What makes this useful is that the agent can actually search the project's docs and code to give accurate answers. Invest time in Phase 3 — getting the right files indexed with the right system prompt.
+
+### Rollback
+
+All project-chat code is additive. To remove:
+1. Delete the API route (e.g., `app/api/chat/route.ts`)
+2. Remove the widget component and its import from the layout
+3. `npm uninstall project-chat`
 
 ---
 
 ## Phase 1: Analyze the Host
 
-**Goal:** Understand the project before writing code.
+**Goal:** Map the project before writing code. Understand 6 dimensions:
 
-Read the following to map the integration:
+### 1.1 Framework detection
 
-1. **Framework detection** — Read `package.json` to identify: Next.js (App Router vs Pages), Express, Fastify, Hono, Vite + React, Remix, SvelteKit, etc.
-2. **Documentation directory** — Look for `docs/`, `documentation/`, `wiki/`, or markdown files at root level (README.md, CONTRIBUTING.md, etc.)
-3. **Source code directory** — Typically `src/`, `app/`, `lib/`, or root-level source files
-4. **Existing API routes** — Where do API handlers live? (`app/api/`, `pages/api/`, `src/routes/`, `server/`)
-5. **App layout** — Where is the root layout? (`app/layout.tsx`, `pages/_app.tsx`, `src/App.tsx`, `index.html`)
-6. **Design system** — Check for: Tailwind config, CSS variables, theme provider, design tokens, brand colors
-7. **Existing chat/AI** — Does the project already have chat or AI features? Avoid conflicts.
+Read `package.json` and identify the framework:
 
-**Output:** Mental model of where each piece goes. No files created yet.
+| Framework | Signals | Backend pattern | Frontend pattern |
+|-----------|---------|----------------|-----------------|
+| Next.js App Router | `next` ≥13, `app/` dir | `app/api/chat/route.ts` + `createNextHandler` | `dynamic(() => ..., { ssr: false })` wrapper |
+| Next.js Pages Router | `next`, `pages/` dir | `pages/api/chat.ts` | Direct import in `_app.tsx` |
+| Vite + React | `vite`, `react` | Separate Express/Hono server | Direct import in `App.tsx` |
+| Remix | `@remix-run/react` | `app/routes/api.chat.tsx` loader | Direct import in `root.tsx` |
+| Astro | `astro` | Astro SSR endpoint or separate server | `mountProjectChat()` from `project-chat/embed` |
+| Express + static | `express`, no React | Inline or `routes/chat.ts` | `mountProjectChat()` from `project-chat/embed` |
+| SvelteKit | `@sveltejs/kit` | `src/routes/api/chat/+server.ts` | `mountProjectChat()` from `project-chat/embed` |
+
+### 1.2 Documentation directory
+
+Search for docs the agent should know about:
+
+```
+Look for: docs/, documentation/, wiki/, guides/
+Also: README.md, CONTRIBUTING.md, CHANGELOG.md, API.md at root
+Check: any markdown files that describe the project
+```
+
+### 1.3 Source code directory
+
+```
+Look for: src/, app/, lib/, server/, packages/
+Note: the file types present (.ts, .tsx, .js, .py, .go, etc.)
+```
+
+### 1.4 Existing API routes
+
+Where do handlers live? This determines where the chat route goes.
+
+```
+Next.js App Router: app/api/
+Next.js Pages Router: pages/api/
+Express: src/routes/ or inline in server.ts/app.ts
+Remix: app/routes/
+Astro: src/pages/api/
+```
+
+### 1.5 Root layout / app shell
+
+Where does the widget get mounted?
+
+```
+Next.js App Router: app/layout.tsx
+Next.js Pages Router: pages/_app.tsx
+Vite + React: src/App.tsx or src/main.tsx
+Remix: app/root.tsx
+Astro: src/layouts/Base.astro
+```
+
+### 1.6 Design system
+
+Extract theme values to match the widget:
+
+```
+Tailwind: check tailwind.config.js for colors.primary, fontFamily
+CSS variables: grep for --primary, --accent, --font in global CSS
+Theme provider: check for ThemeProvider or design tokens
+Brand: look at existing buttons/headers for accent color
+```
+
+**Output:** Mental model of where each piece goes. No files written yet.
 
 ---
 
@@ -47,108 +111,153 @@ Read the following to map the integration:
 npm install project-chat
 ```
 
-Add to `.env` (or `.env.local` for Next.js):
+The Agent SDK (`@anthropic-ai/claude-agent-sdk`) and Zod v4 come as transitive dependencies — no separate install needed.
 
-```
-ANTHROPIC_API_KEY=sk-ant-...
-```
+Add the API key to the environment:
 
-**Important:** The API key must stay server-side. Never import it in client code.
+| Framework | File | Variable |
+|-----------|------|----------|
+| Next.js | `.env.local` | `ANTHROPIC_API_KEY=sk-ant-...` |
+| Express/Hono | `.env` | `ANTHROPIC_API_KEY=sk-ant-...` |
+| Docker | `docker-compose.yml` | Under `environment:` |
+
+**Important:** The API key must stay server-side. Never import `project-chat/server` or `project-chat/mcp` from client code.
 
 ---
 
 ## Phase 3: Backend Setup
 
-**Goal:** Create the API route that handles chat requests.
+**Goal:** Create the API route that handles chat requests with project-aware MCP context.
 
-### 3.1 Create the handler
+### 3.1 Configure MCP context
 
-Create a file at the appropriate location for the host framework:
-
-| Framework | File path |
-|-----------|-----------|
-| Next.js App Router | `app/api/chat/route.ts` |
-| Next.js Pages Router | `pages/api/chat.ts` |
-| Express | `src/routes/chat.ts` or inline in `server.ts` |
-| Hono | `src/routes/chat.ts` or inline |
-| Fastify | `src/routes/chat.ts` |
-
-### 3.2 Configure MCP context
-
-This is the key step. The agent needs to know about the project.
+This is the critical step. The agent needs to know about the project.
 
 ```typescript
 import { createHandler } from 'project-chat/server'
 import { createProjectContextServer } from 'project-chat/mcp'
 
 const projectContext = createProjectContextServer({
-  docsDir: './docs',      // ← adjust to host's actual docs dir
-  codeDir: './src',       // ← adjust to host's actual source dir
-  // File extensions are auto-detected. Override if needed:
-  // docExtensions: ['.md', '.mdx', '.txt'],
-  // codeExtensions: ['.ts', '.tsx', '.js', '.jsx'],
-  // excludeDirs: ['node_modules', 'dist', '.git'],
+  docsDir: './docs',      // ← host's actual docs directory
+  codeDir: './src',       // ← host's actual source directory
+  // Defaults are sensible. Override only if needed:
+  // docExtensions: ['.md', '.mdx', '.txt', '.rst'],
+  // codeExtensions: ['.ts', '.tsx', '.js', '.jsx', '.py', ...],
+  // excludeDirs: ['node_modules', 'dist', '.git', ...],
+  // maxFileSize: 100_000,
 })
 
+console.log(`Indexed ${projectContext.fileCount} project files`)
+```
+
+**Verify this number makes sense.** If it's 0, the paths are wrong. If it's in the thousands, `excludeDirs` isn't filtering enough.
+
+### 3.2 Write the system prompt
+
+Be specific about what the project does. Generic prompts get generic answers.
+
+```typescript
 const handler = createHandler({
-  systemPrompt: `You are a helpful assistant for [PROJECT_NAME].
-You have access to the project's documentation and source code.
-Search the docs and code to answer questions accurately.
-If you don't know something, say so — don't make up answers.`,
-  cwd: process.cwd(),  // Working directory for agent's file tools
+  systemPrompt: `You are a helpful assistant for [PROJECT NAME] — [one-sentence description].
+
+You have access to the project's documentation and source code via MCP tools.
+Use search_docs and search_code to find accurate information before answering.
+If you can't find the answer in the indexed files, say so — don't guess.
+
+Key topics users ask about:
+- [topic 1]
+- [topic 2]
+- [topic 3]`,
+
+  cwd: process.cwd(),
   mcpServers: {
-    'project': projectContext.server,  // createProjectContextServer returns the MCP config directly
+    project: projectContext.server,
   },
+  maxBudgetUsd: 0.25,
+  maxTurns: 5,
 })
 ```
 
-**Customize the system prompt** based on what the project does. Be specific.
-
 ### 3.3 Wire the framework adapter
 
-| Framework | Pattern |
-|-----------|---------|
-| Next.js App Router | `export const { POST } = createNextHandler(handler)` |
-| Express | `app.post('/api/chat', createExpressHandler(handler))` |
-| Hono | `app.post('/api/chat', createHonoHandler(handler))` |
+**Next.js App Router** — `app/api/chat/route.ts`:
+
+```typescript
+import { createHandler, createNextHandler } from 'project-chat/server'
+import { createProjectContextServer } from 'project-chat/mcp'
+
+const projectContext = createProjectContextServer({ docsDir: '.', codeDir: './src' })
+
+const handler = createHandler({
+  systemPrompt: '...',
+  mcpServers: { project: projectContext.server },
+})
+
+export const { POST } = createNextHandler(handler)
+```
+
+**Express** — inline or `routes/chat.ts`:
+
+```typescript
+import express from 'express'
+import { createHandler, createExpressHandler } from 'project-chat/server'
+import { createProjectContextServer } from 'project-chat/mcp'
+
+const projectContext = createProjectContextServer({ docsDir: './docs', codeDir: './src' })
+const handler = createHandler({ systemPrompt: '...', mcpServers: { project: projectContext.server } })
+
+app.post('/api/chat', express.json(), createExpressHandler(handler))
+```
+
+**Hono**:
+
+```typescript
+import { createHandler, createHonoHandler } from 'project-chat/server'
+
+app.post('/api/chat', createHonoHandler(handler))
+```
 
 ### 3.4 Optional: Add page context
 
-If the project is a web app (not just docs), add the page context server so the agent knows what page the user is viewing:
+If the project is a web app (not just docs), add page awareness:
 
 ```typescript
 import { createPageContextServer } from 'project-chat/mcp'
 
 const pageContext = createPageContextServer()
 
-// Add to handler config:
 mcpServers: {
-  'project': projectContext.server,
-  'page': pageContext.server,
+  project: projectContext.server,
+  page: pageContext.server,
 }
 ```
+
+### 3.5 Optional: Add custom MCP context
+
+For database queries, API lookups, or user-specific data — see [add-mcp-context.md](add-mcp-context.md).
 
 ---
 
 ## Phase 4: Frontend Setup
 
-**Goal:** Mount the widget in the app layout.
+**Goal:** Mount the widget in the app.
 
-### 4.1 Add the widget
+### 4.1 Next.js App Router
 
-**Next.js App Router** (requires dynamic import to avoid SSR issues):
+The widget uses browser APIs (localStorage, window, useContext) that fail during server-side rendering. **You must use `dynamic()` with `ssr: false`.**
 
-Create a client component wrapper:
+Create two files:
 
 ```tsx
-// src/app/chat-widget.tsx
+// app/chat-widget.tsx
 "use client"
 
 import dynamic from 'next/dynamic'
 
-const ChatWidgetInner = dynamic(() => import('./chat-widget-inner').then(m => ({ default: m.ChatWidgetInner })), {
-  ssr: false,
-})
+const ChatWidgetInner = dynamic(
+  () => import('./chat-widget-inner').then(m => ({ default: m.ChatWidgetInner })),
+  { ssr: false }
+)
 
 export function ChatWidget() {
   return <ChatWidgetInner />
@@ -156,7 +265,7 @@ export function ChatWidget() {
 ```
 
 ```tsx
-// src/app/chat-widget-inner.tsx
+// app/chat-widget-inner.tsx
 "use client"
 
 import { AgentChatProvider, AgentChat } from 'project-chat'
@@ -167,7 +276,6 @@ export function ChatWidgetInner() {
       endpoint: '/api/chat',
       title: '[Project Name]',
       greeting: 'Hi! Ask me anything about [Project Name].',
-      placeholder: 'Ask a question...',
     }}>
       <AgentChat />
     </AgentChatProvider>
@@ -175,25 +283,39 @@ export function ChatWidgetInner() {
 }
 ```
 
-Then add `<ChatWidget />` to the root layout. The `ssr: false` ensures the widget only renders on the client (it uses `window`, `localStorage`, and other browser APIs).
+Add `<ChatWidget />` to root layout:
 
-**Vite + React, Remix, other React projects:**
+```tsx
+// app/layout.tsx
+import { ChatWidget } from './chat-widget'
+
+export default function RootLayout({ children }) {
+  return (
+    <html><body>
+      {children}
+      <ChatWidget />
+    </body></html>
+  )
+}
+```
+
+### 4.2 Vite + React / Remix / other React
+
+Direct import — no SSR issue:
 
 ```tsx
 import { AgentChatProvider, AgentChat } from 'project-chat'
 
-// Inside the root component:
 <AgentChatProvider config={{
   endpoint: '/api/chat',
   title: '[Project Name]',
-  greeting: 'Hi! Ask me anything about [Project Name].',
-  placeholder: 'Ask a question...',
+  greeting: 'Hi! Ask me anything.',
 }}>
   <AgentChat />
 </AgentChatProvider>
 ```
 
-**Non-React projects (Astro, static HTML, etc.):**
+### 4.3 Astro / static HTML / non-React
 
 ```html
 <script type="module">
@@ -201,71 +323,78 @@ import { AgentChatProvider, AgentChat } from 'project-chat'
   mountProjectChat({
     endpoint: '/api/chat',
     title: '[Project Name]',
-    greeting: 'Hi! Ask me anything about [Project Name].',
+    greeting: 'Hi! Ask me anything.',
   })
 </script>
 ```
 
-Note: The embed entry requires React 18+ as a peer dependency in the project.
+Requires React 18+ as a peer dependency. For static sites, you need a separate backend server to host `/api/chat`.
 
-### 4.2 Match the theme
+### 4.4 Match the theme
 
-Read the host's design system and configure the theme:
+Extract the host's brand colors and apply:
 
 ```typescript
-// If the project uses Tailwind or has clear brand colors:
 config={{
-  endpoint: '/api/chat',
   theme: {
-    mode: 'light',           // or 'dark', or 'system'
-    accentColor: '#6366f1',  // ← extract from host's primary color
-    fontFamily: 'inherit',   // ← use host's font stack
-    borderRadius: '12px',
+    mode: 'dark',
+    accentColor: '#3b82f6',    // ← host's primary color
+    fontFamily: 'inherit',
   },
 }}
-
-// Or just use system detection:
-config={{
-  endpoint: '/api/chat',
-  theme: 'system',  // auto-detects light/dark preference
-}}
 ```
+
+See [customize-theme.md](customize-theme.md) for extracting from Tailwind, CSS variables, etc.
 
 ---
 
 ## Phase 5: Verify
 
-**Goal:** Confirm the integration works end-to-end.
+**Goal:** Confirm it works end-to-end.
 
 1. Start the dev server
-2. Open the app in a browser
-3. Click the chat bubble
-4. Send a test message: "What does this project do?"
+2. Open the app — bubble appears in corner
+3. Click bubble — panel slides open with greeting
+4. Ask: **"What does this project do?"**
 5. Verify:
-   - Agent streams a response
-   - Agent uses MCP tools to search docs/code (tool indicators appear)
-   - Response is accurate and project-specific (not generic)
-   - Session persists across page reload
 
-**If the agent gives generic answers:** The project context MCP server may not have indexed the right files. Check:
-- Are `docsDir` and `codeDir` paths correct?
-- Are the `include` patterns matching the right file types?
-- Is `projectContext.fileCount` > 0?
+| Check | Expected | If failing |
+|-------|----------|-----------|
+| Bubble appears | Floating circle in corner | Check widget is mounted, no JS console errors |
+| Panel opens | Slide-out panel with greeting | Check AgentChatProvider wraps AgentChat |
+| Message sends | User message appears, loading indicator | Check endpoint matches API route |
+| Agent responds | Streamed text with tool indicators | Check ANTHROPIC_API_KEY, server logs |
+| Response is accurate | Mentions real project details | Check `projectContext.fileCount > 0` |
+| Session persists | Refresh, reopen chat — messages still there | localStorage working |
+| Escape closes | Press Escape key | Automatic |
+| Stop works | Click stop during streaming | Automatic |
 
-**If streaming doesn't work:** Check the browser console for CORS errors. The backend may need CORS headers.
+### Common failures
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Module not found | Symlink + Turbopack | Install from tarball: `npm pack` then `npm install ./project-chat-*.tgz` |
+| useContext null | SSR in Next.js | Use `dynamic(() => ..., { ssr: false })` |
+| Generic responses | Empty MCP context | Check docsDir/codeDir paths, verify fileCount |
+| 500 error | Missing API key | Set ANTHROPIC_API_KEY |
+| CORS errors | Cross-origin | Add CORS middleware |
 
 ---
 
 ## Post-integration
 
-### Adding custom MCP context
+| Need | Skill |
+|------|-------|
+| Custom database/API context | [add-mcp-context.md](add-mcp-context.md) |
+| Theme customization | [customize-theme.md](customize-theme.md) |
+| Production deployment | [deploy-project-chat.md](deploy-project-chat.md) |
 
-See [`add-mcp-context.md`](add-mcp-context.md) for adding database queries, API lookups, or other project-specific context.
+## Decision quick-reference
 
-### Customizing the theme
-
-See [`customize-theme.md`](customize-theme.md) for deep theme customization.
-
-### Production deployment
-
-See [`deploy-project-chat.md`](deploy-project-chat.md) for API key security, rate limiting, and budget caps.
+| Decision | Guidance |
+|----------|---------|
+| Model | Sonnet for quality/cost balance. Haiku for high-volume. |
+| Tools | Start read-only: `['Read', 'Glob', 'Grep']`. Never add `Write`/`Bash` for public widgets. |
+| Budget | `$0.25/request` default. Lower for high-volume, higher for complex questions. |
+| Turns | `5` usually enough. `10` for multi-step. |
+| Sessions | `MemorySessionStore` for single-server. Redis/DB for multi-server. |
