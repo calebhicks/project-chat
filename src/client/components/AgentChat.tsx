@@ -117,6 +117,7 @@ export function AgentChat() {
           <ChatPanel
             messages={chat.messages}
             onSend={chat.send}
+            onStop={chat.stop}
             isStreaming={chat.isStreaming}
             isDark={isDark}
             accentColor={accentColor}

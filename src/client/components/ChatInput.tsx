@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef } from 'react'
 
 interface ChatInputProps {
   onSend: (text: string) => void
+  onStop: () => void
   isStreaming: boolean
   placeholder: string
   maxLength: number
@@ -9,7 +10,7 @@ interface ChatInputProps {
   accentColor: string
 }
 
-export function ChatInput({ onSend, isStreaming, placeholder, maxLength, isDark, accentColor }: ChatInputProps) {
+export function ChatInput({ onSend, onStop, isStreaming, placeholder, maxLength, isDark, accentColor }: ChatInputProps) {
   const [value, setValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -50,7 +51,7 @@ export function ChatInput({ onSend, isStreaming, placeholder, maxLength, isDark,
         value={value}
         onChange={handleInput}
         onKeyDown={handleKeyDown}
-        placeholder={placeholder}
+        placeholder={isStreaming ? 'Waiting for response...' : placeholder}
         maxLength={maxLength}
         disabled={isStreaming}
         rows={1}
@@ -67,6 +68,7 @@ export function ChatInput({ onSend, isStreaming, placeholder, maxLength, isDark,
           color: isDark ? '#e2e8f0' : '#1e293b',
           outline: 'none',
           overflow: 'hidden',
+          opacity: isStreaming ? 0.6 : 1,
         }}
         onFocus={e => {
           e.target.style.borderColor = accentColor
@@ -77,34 +79,59 @@ export function ChatInput({ onSend, isStreaming, placeholder, maxLength, isDark,
           e.target.style.boxShadow = 'none'
         }}
       />
-      <button
-        onClick={handleSend}
-        disabled={!value.trim() || isStreaming}
-        aria-label="Send message"
-        style={{
-          width: 36,
-          height: 36,
-          borderRadius: 8,
-          border: 'none',
-          backgroundColor: !value.trim() || isStreaming
-            ? isDark ? '#334155' : '#e2e8f0'
-            : accentColor,
-          color: !value.trim() || isStreaming
-            ? isDark ? '#64748b' : '#94a3b8'
-            : '#fff',
-          cursor: !value.trim() || isStreaming ? 'not-allowed' : 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexShrink: 0,
-          transition: 'background-color 0.15s ease',
-        }}
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <line x1="22" y1="2" x2="11" y2="13" />
-          <polygon points="22 2 15 22 11 13 2 9 22 2" />
-        </svg>
-      </button>
+      {isStreaming ? (
+        <button
+          onClick={onStop}
+          aria-label="Stop generating"
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 8,
+            border: `1px solid ${isDark ? '#475569' : '#d1d5db'}`,
+            backgroundColor: isDark ? '#1e293b' : '#f8fafc',
+            color: isDark ? '#e2e8f0' : '#374151',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            transition: 'background-color 0.15s ease',
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+          </svg>
+        </button>
+      ) : (
+        <button
+          onClick={handleSend}
+          disabled={!value.trim()}
+          aria-label="Send message"
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: 8,
+            border: 'none',
+            backgroundColor: !value.trim()
+              ? isDark ? '#334155' : '#e2e8f0'
+              : accentColor,
+            color: !value.trim()
+              ? isDark ? '#64748b' : '#94a3b8'
+              : '#fff',
+            cursor: !value.trim() ? 'not-allowed' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            transition: 'background-color 0.15s ease',
+          }}
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="22" y1="2" x2="11" y2="13" />
+            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+          </svg>
+        </button>
+      )}
     </div>
   )
 }

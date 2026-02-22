@@ -9,14 +9,16 @@ import { query } from '@anthropic-ai/claude-agent-sdk'
 import type { ChatRequest, ChatEvent } from '../shared/protocol.js'
 import { MemorySessionStore, type SessionStore, type SessionData } from './session-store.js'
 
-export interface McpServerConfig {
-  command?: string
-  args?: string[]
-  type?: 'stdio' | 'http' | 'sse' | 'sdk'
-  url?: string
-  instance?: unknown
-  env?: Record<string, string>
-}
+/**
+ * MCP server configuration. Accepts:
+ * - The object returned by createSdkMcpServer() (has { type, name, instance })
+ * - A stdio config: { command, args, env }
+ * - An HTTP/SSE config: { type: 'http'|'sse', url }
+ */
+export type McpServerConfig =
+  | { type: 'sdk'; name: string; instance: unknown }
+  | { command: string; args?: string[]; env?: Record<string, string> }
+  | { type: 'http' | 'sse'; url: string }
 
 export interface HandlerConfig {
   /** System prompt for the agent. Describe the project and how the agent should help. */
@@ -30,6 +32,9 @@ export interface HandlerConfig {
 
   /** MCP servers the agent has access to. This is where project context goes. */
   mcpServers?: Record<string, McpServerConfig>
+
+  /** Working directory for the agent's built-in file tools. Defaults to process.cwd(). */
+  cwd?: string
 
   /** Max spend per request in USD. Defaults to 0.25. */
   maxBudgetUsd?: number
@@ -63,10 +68,11 @@ export interface AgentChatHandler {
 
 export function createHandler(config: HandlerConfig): AgentChatHandler {
   const {
-    systemPrompt = 'You are a helpful assistant for this project. Answer questions using the tools available to you.',
+    systemPrompt = 'You are a helpful assistant for this project. Answer questions using the tools available to you. Be concise and accurate.',
     model = 'claude-sonnet-4-5-20250514',
     allowedTools = ['Read', 'Glob', 'Grep'],
     mcpServers = {},
+    cwd = process.cwd(),
     maxBudgetUsd = 0.25,
     maxTurns = 10,
     maxInputLength = 4000,
@@ -107,11 +113,11 @@ export function createHandler(config: HandlerConfig): AgentChatHandler {
 
       onMessageStart?.(clientSessionId)
 
-      // Build the prompt — include page context if provided
+      // Build the prompt — include page context inline
       let prompt = req.message
       if (req.context?.page) {
         const { url, title, pathname } = req.context.page
-        prompt = `[User is on page: ${title} (${pathname})]\n\n${req.message}`
+        prompt = `[The user is currently on: "${title}" at ${pathname}]\n\n${req.message}`
       }
 
       try {
@@ -123,11 +129,8 @@ export function createHandler(config: HandlerConfig): AgentChatHandler {
           maxBudgetUsd,
           includePartialMessages: true,
           permissionMode: 'bypassPermissions',
-          systemPrompt: {
-            type: 'preset',
-            preset: 'claude_code',
-            append: systemPrompt,
-          },
+          cwd,
+          systemPrompt,
         }
 
         // Add MCP servers if any are configured
@@ -163,7 +166,9 @@ export function createHandler(config: HandlerConfig): AgentChatHandler {
                 }
                 if (block.type === 'tool_use') {
                   yield { event: 'tool_use_start', data: { id: block.id, tool: block.name, input: block.input } }
-                  yield { event: 'tool_use_end', data: { id: block.id, tool: block.name } }
+                }
+                if (block.type === 'tool_result') {
+                  yield { event: 'tool_use_end', data: { id: block.tool_use_id ?? block.id, tool: '' } }
                 }
               }
               yield { event: 'message_end', data: { id: assistantMsg.message?.id ?? crypto.randomUUID() } }

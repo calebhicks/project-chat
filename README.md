@@ -71,11 +71,12 @@ User → React Widget → SSE → Backend Handler → Agent SDK query() → MCP 
                                                                     └── Your custom servers
 ```
 
-Three layers, one package, four entry points:
+Three layers, one package, five entry points:
 
 | Import | What |
 |--------|------|
 | `project-chat` | React widget + hooks |
+| `project-chat/embed` | Vanilla JS mount for non-React projects (Astro, static HTML) |
 | `project-chat/server` | Backend handler + framework adapters |
 | `project-chat/mcp` | MCP server factories |
 | `project-chat/protocol` | Shared SSE types |
@@ -98,6 +99,20 @@ Three layers, one package, four entry points:
   <AgentChat />
 </AgentChatProvider>
 ```
+
+### Non-React projects (Astro, static HTML)
+
+```html
+<script type="module">
+  import { mountProjectChat } from 'project-chat/embed'
+  mountProjectChat({
+    endpoint: '/api/chat',
+    greeting: 'Ask me anything about this project.',
+  })
+</script>
+```
+
+Requires React 18+ as a peer dependency (installed in the project).
 
 ### Custom UI via hook
 

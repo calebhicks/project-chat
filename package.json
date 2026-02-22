@@ -22,13 +22,15 @@
       "types": "./dist/shared/protocol.d.ts",
       "import": "./dist/shared/protocol.js",
       "require": "./dist/shared/protocol.cjs"
+    },
+    "./embed": {
+      "types": "./dist/client/embed.d.ts",
+      "import": "./dist/client/embed.js"
     }
   },
   "scripts": {
-    "build": "npm run build:server && npm run build:client",
-    "build:server": "tsup",
-    "build:client": "vite build",
-    "dev": "concurrently 'tsup --watch' 'vite build --watch'",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"

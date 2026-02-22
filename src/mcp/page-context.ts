@@ -9,7 +9,6 @@
  */
 
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
-import { z } from 'zod'
 import type { PageContext, PageContent } from '../shared/protocol.js'
 
 interface PageState {

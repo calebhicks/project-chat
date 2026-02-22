@@ -6,6 +6,7 @@ import { ChatInput } from './ChatInput.js'
 interface ChatPanelProps {
   messages: ChatMessage[]
   onSend: (text: string) => void
+  onStop: () => void
   isStreaming: boolean
   isDark: boolean
   accentColor: string
@@ -20,6 +21,7 @@ interface ChatPanelProps {
 export function ChatPanel({
   messages,
   onSend,
+  onStop,
   isStreaming,
   isDark,
   accentColor,
@@ -99,6 +101,7 @@ export function ChatPanel({
       {/* Input */}
       <ChatInput
         onSend={onSend}
+        onStop={onStop}
         isStreaming={isStreaming}
         placeholder={placeholder}
         maxLength={maxMessageLength}

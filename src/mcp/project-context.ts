@@ -20,11 +20,14 @@ export interface ProjectContextConfig {
   /** Directory containing source code */
   codeDir?: string
 
-  /** Glob patterns to include. Defaults to ['**\/*.md', '**\/*.ts', '**\/*.tsx', '**\/*.js', '**\/*.jsx'] */
-  include?: string[]
+  /** File extensions to include as docs. Defaults to ['.md', '.mdx', '.txt', '.rst'] */
+  docExtensions?: string[]
 
-  /** Glob patterns to exclude. Defaults to ['**\/node_modules\/**', '**\/dist\/**', '**\/.git\/**'] */
-  exclude?: string[]
+  /** File extensions to include as code. Defaults to common source file extensions. */
+  codeExtensions?: string[]
+
+  /** Directory names to skip. Defaults to ['node_modules', 'dist', '.git', 'build', '.next', '__pycache__', '.venv'] */
+  excludeDirs?: string[]
 
   /** Skip files larger than this (bytes). Defaults to 100KB. */
   maxFileSize?: number
@@ -41,28 +44,31 @@ interface IndexedFile {
   searchContent: string
 }
 
-function matchesPattern(filePath: string, patterns: string[]): boolean {
-  return patterns.some(pattern => {
-    // Simple glob matching: ** matches any path, * matches any filename
-    const regex = pattern
-      .replace(/\*\*/g, '{{GLOBSTAR}}')
-      .replace(/\*/g, '[^/]*')
-      .replace(/{{GLOBSTAR}}/g, '.*')
-      .replace(/\./g, '\\.')
-    return new RegExp(`^${regex}$`).test(filePath)
-  })
-}
+const DEFAULT_DOC_EXTENSIONS = ['.md', '.mdx', '.txt', '.rst']
+const DEFAULT_CODE_EXTENSIONS = [
+  '.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.rs', '.java',
+  '.rb', '.php', '.vue', '.svelte', '.astro', '.css', '.scss',
+  '.yaml', '.yml', '.toml', '.json',
+]
+const DEFAULT_EXCLUDE_DIRS = [
+  'node_modules', 'dist', '.git', 'build', '.next', '__pycache__',
+  '.venv', 'vendor', '.turbo', '.cache', 'coverage',
+]
 
-function walkDir(dir: string, basePath: string = dir): string[] {
+function walkDir(dir: string, basePath: string, excludeDirs: string[]): string[] {
   if (!fs.existsSync(dir)) return []
   const results: string[] = []
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const fullPath = path.join(dir, entry.name)
-    if (entry.isDirectory()) {
-      results.push(...walkDir(fullPath, basePath))
-    } else {
-      results.push(path.relative(basePath, fullPath))
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        if (excludeDirs.includes(entry.name)) continue
+        results.push(...walkDir(path.join(dir, entry.name), basePath, excludeDirs))
+      } else {
+        results.push(path.relative(basePath, path.join(dir, entry.name)))
+      }
     }
+  } catch {
+    // Skip unreadable directories
   }
   return results
 }
@@ -74,12 +80,10 @@ function searchIndex(files: IndexedFile[], query: string, maxResults: number = 5
   const scored = files.map(file => {
     let score = 0
     for (const term of terms) {
-      // Count occurrences
       let idx = -1
       while ((idx = file.searchContent.indexOf(term, idx + 1)) !== -1) {
         score++
       }
-      // Bonus for filename match
       if (file.path.toLowerCase().includes(term)) {
         score += 5
       }
@@ -107,7 +111,6 @@ function extractSnippet(content: string, query: string, contextLines: number = 3
     }
   }
 
-  // Fallback: return first N lines
   return lines.slice(0, contextLines * 2 + 1).join('\n')
 }
 
@@ -115,23 +118,23 @@ export function createProjectContextServer(config: ProjectContextConfig) {
   const {
     docsDir,
     codeDir,
-    include = ['**/*.md', '**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.py', '**/*.go', '**/*.rs'],
-    exclude = ['**/node_modules/**', '**/dist/**', '**/.git/**', '**/build/**', '**/.next/**'],
+    docExtensions = DEFAULT_DOC_EXTENSIONS,
+    codeExtensions = DEFAULT_CODE_EXTENSIONS,
+    excludeDirs = DEFAULT_EXCLUDE_DIRS,
     maxFileSize = 100_000,
     apiSpec,
   } = config
 
-  // Build the file index at creation time
   const files: IndexedFile[] = []
 
-  function indexDir(dir: string, type: 'doc' | 'code') {
+  function indexDir(dir: string, type: 'doc' | 'code', extensions: string[]) {
     if (!dir) return
     const resolvedDir = path.resolve(dir)
-    const allFiles = walkDir(resolvedDir)
+    const allFiles = walkDir(resolvedDir, resolvedDir, excludeDirs)
 
     for (const relPath of allFiles) {
-      if (matchesPattern(relPath, exclude)) continue
-      if (!matchesPattern(relPath, include)) continue
+      const ext = path.extname(relPath).toLowerCase()
+      if (!extensions.includes(ext)) continue
 
       const fullPath = path.join(resolvedDir, relPath)
       try {
@@ -151,16 +154,15 @@ export function createProjectContextServer(config: ProjectContextConfig) {
     }
   }
 
-  if (docsDir) indexDir(docsDir, 'doc')
-  if (codeDir) indexDir(codeDir, 'code')
+  if (docsDir) indexDir(docsDir, 'doc', docExtensions)
+  if (codeDir) indexDir(codeDir, 'code', codeExtensions)
 
-  // Load API spec if provided
   let apiSpecContent: string | null = null
   if (apiSpec && fs.existsSync(apiSpec)) {
     try {
       apiSpecContent = fs.readFileSync(apiSpec, 'utf-8')
     } catch {
-      // Skip if unreadable
+      // Skip
     }
   }
 
@@ -170,7 +172,7 @@ export function createProjectContextServer(config: ProjectContextConfig) {
       tool(
         'search_docs',
         'Search project documentation for relevant content. Returns matching excerpts with file paths.',
-        { query: z.string().describe('Search query — what are you looking for in the docs?') },
+        { query: z.string().describe('Search query') },
         async ({ query: q }) => {
           const docFiles = files.filter(f => f.type === 'doc')
           if (docFiles.length === 0) {
@@ -191,7 +193,7 @@ export function createProjectContextServer(config: ProjectContextConfig) {
       tool(
         'search_code',
         'Search project source code for relevant content. Returns matching code snippets with file paths.',
-        { query: z.string().describe('Search query — function name, concept, or keyword to find in code') },
+        { query: z.string().describe('Search query — function name, concept, or keyword') },
         async ({ query: q }) => {
           const codeFiles = files.filter(f => f.type === 'code')
           if (codeFiles.length === 0) {
@@ -212,11 +214,11 @@ export function createProjectContextServer(config: ProjectContextConfig) {
       tool(
         'read_file',
         'Read the full contents of a specific file in the project.',
-        { path: z.string().describe('File path relative to the project root') },
+        { path: z.string().describe('File path relative to project root') },
         async ({ path: filePath }) => {
           const file = files.find(f => f.path === filePath)
           if (!file) {
-            return { content: [{ type: 'text' as const, text: `File not found: ${filePath}` }] }
+            return { content: [{ type: 'text' as const, text: `File not found: ${filePath}\n\nAvailable files:\n${files.slice(0, 20).map(f => `- ${f.path}`).join('\n')}` }] }
           }
           return { content: [{ type: 'text' as const, text: `# ${file.path}\n\n\`\`\`\n${file.content}\n\`\`\`` }] }
         }
@@ -248,20 +250,23 @@ export function createProjectContextServer(config: ProjectContextConfig) {
 
       tool(
         'get_project_summary',
-        'Get a high-level summary of the project: README content, file structure overview, and total indexed files.',
+        'Get a high-level summary of the project: README content, file count, and structure overview.',
         {},
         async () => {
           const readme = files.find(f => f.path.toLowerCase() === 'readme.md')
           const parts: string[] = []
 
-          parts.push(`**Indexed files:** ${files.length} total (${files.filter(f => f.type === 'doc').length} docs, ${files.filter(f => f.type === 'code').length} code)`)
+          parts.push(`**Indexed:** ${files.length} files (${files.filter(f => f.type === 'doc').length} docs, ${files.filter(f => f.type === 'code').length} code)`)
 
           if (readme) {
-            parts.push(`## README\n\n${readme.content}`)
+            // Truncate very long READMEs
+            const readmeContent = readme.content.length > 3000
+              ? readme.content.slice(0, 3000) + '\n\n... (truncated)'
+              : readme.content
+            parts.push(`## README\n\n${readmeContent}`)
           }
 
           if (apiSpecContent) {
-            // Just show the first 50 lines of the spec
             const specPreview = apiSpecContent.split('\n').slice(0, 50).join('\n')
             parts.push(`## API Spec (preview)\n\`\`\`\n${specPreview}\n\`\`\``)
           }
@@ -273,7 +278,7 @@ export function createProjectContextServer(config: ProjectContextConfig) {
   })
 
   return {
-    /** The MCP server instance. Pass to handler config as mcpServers value. */
+    /** The MCP server config. Pass directly as a value in handler's mcpServers. */
     server,
 
     /** Number of indexed files. */
@@ -282,8 +287,8 @@ export function createProjectContextServer(config: ProjectContextConfig) {
     /** Re-index files (e.g., after a deploy). */
     reindex() {
       files.length = 0
-      if (docsDir) indexDir(docsDir, 'doc')
-      if (codeDir) indexDir(codeDir, 'code')
+      if (docsDir) indexDir(docsDir, 'doc', docExtensions)
+      if (codeDir) indexDir(codeDir, 'code', codeExtensions)
     },
   }
 }

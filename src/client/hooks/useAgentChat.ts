@@ -24,6 +24,7 @@ export interface UseAgentChatOptions {
 export interface UseAgentChatReturn {
   messages: ChatMessage[]
   send: (text: string) => void
+  stop: () => void
   isStreaming: boolean
   activeTools: ToolUseRecord[]
   sessionId: string | undefined
@@ -168,13 +169,32 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
         },
       )
     } catch (err) {
-      if ((err as Error).name === 'AbortError') return
+      if ((err as Error).name === 'AbortError') {
+        setIsStreaming(false)
+        // Remove empty assistant message on abort
+        setMessages(prev => {
+          const last = prev[prev.length - 1]
+          return last?.role === 'assistant' && !last.content ? prev.slice(0, -1) : prev
+        })
+        return
+      }
       const error = err instanceof Error ? err : new Error(String(err))
       setIsStreaming(false)
       setError(error)
       onError?.(error)
+      // Remove empty assistant message on error
+      setMessages(prev => {
+        const last = prev[prev.length - 1]
+        return last?.role === 'assistant' && !last.content ? prev.slice(0, -1) : prev
+      })
     }
   }, [endpoint, sessionId, isStreaming, updateSessionId, onError])
+
+  const stop = useCallback(() => {
+    abortRef.current?.abort()
+    setIsStreaming(false)
+    setActiveTools([])
+  }, [])
 
   const clearHistory = useCallback(() => {
     abortRef.current?.abort()
@@ -188,6 +208,7 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
   return {
     messages,
     send,
+    stop,
     isStreaming,
     activeTools,
     sessionId,
