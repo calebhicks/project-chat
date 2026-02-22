@@ -282,7 +282,7 @@ export function createProjectContextServer(config: ProjectContextConfig) {
     server,
 
     /** Number of indexed files. */
-    fileCount: files.length,
+    get fileCount() { return files.length },
 
     /** Re-index files (e.g., after a deploy). */
     reindex() {

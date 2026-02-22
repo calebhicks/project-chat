@@ -1,6 +1,7 @@
 import React from 'react'
 import type { ChatMessage } from '../../shared/protocol.js'
 import { ToolIndicator } from './ToolIndicator.js'
+import { Markdown } from './Markdown.js'
 
 interface MessageBubbleProps {
   message: ChatMessage
@@ -31,10 +32,14 @@ export function MessageBubble({ message, isDark, accentColor, showToolUse }: Mes
           : isDark ? '#e2e8f0' : '#1e293b',
         fontSize: 14,
         lineHeight: 1.5,
-        whiteSpace: 'pre-wrap',
         wordBreak: 'break-word',
       }}>
-        {message.content || (message.toolUses?.length ? '' : '\u00A0')}
+        {message.content
+          ? (isUser
+              ? <span style={{ whiteSpace: 'pre-wrap' }}>{message.content}</span>
+              : <Markdown content={message.content} isDark={isDark} />)
+          : (message.toolUses?.length ? null : '\u00A0')
+        }
       </div>
       {showToolUse && message.toolUses && message.toolUses.length > 0 && (
         <ToolIndicator tools={message.toolUses} isDark={isDark} />

@@ -5,7 +5,7 @@
  * chat widget in the corner of the page.
  */
 
-import React, { useState, useMemo } from 'react'
+import React, { useState, useMemo, useEffect, useCallback } from 'react'
 import { useAgentChatConfig, type ThemeConfig } from '../context/AgentChatProvider.js'
 import { useAgentChat } from '../hooks/useAgentChat.js'
 import { ChatBubble } from './ChatBubble.js'
@@ -95,6 +95,18 @@ export function AgentChat() {
   // Inject CSS animations
   ensureStyles()
 
+  // Escape key closes the panel
+  const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'Escape' && isOpen) {
+      setIsOpen(false)
+    }
+  }, [isOpen])
+
+  useEffect(() => {
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [handleKeyDown])
+
   const position = config.position ?? 'bottom-right'
 
   return (
@@ -118,6 +130,7 @@ export function AgentChat() {
             messages={chat.messages}
             onSend={chat.send}
             onStop={chat.stop}
+            onClear={chat.clearHistory}
             isStreaming={chat.isStreaming}
             isDark={isDark}
             accentColor={accentColor}
@@ -126,6 +139,7 @@ export function AgentChat() {
             maxMessageLength={config.maxMessageLength ?? 4000}
             showToolUse={config.showToolUse ?? true}
             greeting={config.greeting}
+            error={chat.error}
             onClose={() => setIsOpen(false)}
           />
         </div>

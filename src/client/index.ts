@@ -6,6 +6,7 @@ export { MessageList } from './components/MessageList.js'
 export { MessageBubble } from './components/MessageBubble.js'
 export { ChatInput } from './components/ChatInput.js'
 export { ToolIndicator } from './components/ToolIndicator.js'
+export { Markdown } from './components/Markdown.js'
 
 // Context
 export { AgentChatProvider, useAgentChatConfig } from './context/AgentChatProvider.js'

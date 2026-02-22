@@ -84,8 +84,10 @@ import { createProjectContextServer } from 'project-chat/mcp'
 const projectContext = createProjectContextServer({
   docsDir: './docs',      // ← adjust to host's actual docs dir
   codeDir: './src',       // ← adjust to host's actual source dir
-  include: ['**/*.md', '**/*.ts', '**/*.tsx'],  // ← adjust to relevant file types
-  exclude: ['**/node_modules/**', '**/dist/**', '**/.git/**'],
+  // File extensions are auto-detected. Override if needed:
+  // docExtensions: ['.md', '.mdx', '.txt'],
+  // codeExtensions: ['.ts', '.tsx', '.js', '.jsx'],
+  // excludeDirs: ['node_modules', 'dist', '.git'],
 })
 
 const handler = createHandler({
@@ -93,8 +95,9 @@ const handler = createHandler({
 You have access to the project's documentation and source code.
 Search the docs and code to answer questions accurately.
 If you don't know something, say so — don't make up answers.`,
+  cwd: process.cwd(),  // Working directory for agent's file tools
   mcpServers: {
-    'project': { type: 'sdk', instance: projectContext.server },
+    'project': projectContext.server,  // createProjectContextServer returns the MCP config directly
   },
 })
 ```
@@ -120,8 +123,8 @@ const pageContext = createPageContextServer()
 
 // Add to handler config:
 mcpServers: {
-  'project': { type: 'sdk', instance: projectContext.server },
-  'page': { type: 'sdk', instance: pageContext.server },
+  'project': projectContext.server,
+  'page': pageContext.server,
 }
 ```
 
@@ -131,7 +134,9 @@ mcpServers: {
 
 **Goal:** Mount the widget in the app layout.
 
-### 4.1 Add the provider and widget
+### 4.1 Add the widget
+
+**React projects (Next.js, Vite, Remix, etc.):**
 
 In the root layout (the component that wraps all pages):
 
@@ -148,6 +153,21 @@ import { AgentChatProvider, AgentChat } from 'project-chat'
   <AgentChat />
 </AgentChatProvider>
 ```
+
+**Non-React projects (Astro, static HTML, etc.):**
+
+```html
+<script type="module">
+  import { mountProjectChat } from 'project-chat/embed'
+  mountProjectChat({
+    endpoint: '/api/chat',
+    title: '[Project Name]',
+    greeting: 'Hi! Ask me anything about [Project Name].',
+  })
+</script>
+```
+
+Note: The embed entry requires React 18+ as a peer dependency in the project.
 
 ### 4.2 Match the theme
 
