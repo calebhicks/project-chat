@@ -1,13 +1,16 @@
 /**
- * Session management for Agent SDK conversations.
+ * Session management for chat conversations.
  *
- * The Agent SDK supports resuming sessions via session ID. We store the mapping
- * between our client-side session IDs and the SDK session IDs, plus metadata.
+ * Supports both handler modes:
+ * - Messages handler: stores conversation history in `history` field
+ * - Agent SDK handler: stores SDK session ID in `sdkSessionId` field
  */
 
 export interface SessionData {
-  /** Agent SDK session ID (returned from query init message) */
+  /** Agent SDK session ID (agent handler mode) */
   sdkSessionId?: string
+  /** Conversation history (messages handler mode) */
+  history?: Array<{ role: string; content: unknown }>
   createdAt: number
   lastActiveAt: number
   messageCount: number
